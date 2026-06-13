@@ -1,6 +1,6 @@
 @echo off
 rem ArduCheck kurulum betigi (Windows)
-cd /d "%~dp0"
+cd /d "%~dp0.."
 echo == ArduCheck kurulumu ==
 
 where python >nul 2>nul
@@ -26,5 +26,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo Kurulum tamam. Baslatmak icin: baslat_windows.bat
+echo Kurulum tamam. Baslatmak icin: scripts\baslat_windows.bat
 pause

@@ -3,7 +3,7 @@
 import html
 import time
 
-from checklist_def import MANUAL_ITEMS
+from .checklist_def import MANUAL_ITEMS
 
 STATUS_TR = {"PASS": "GEÇTİ", "WARN": "UYARI", "FAIL": "HATA",
              "INFO": "BİLGİ", "SKIP": "ATLANDI"}

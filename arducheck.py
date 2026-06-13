@@ -28,7 +28,8 @@ def main():
     except ImportError as exc:
         print("HATA: gerekli paket eksik (%s).\n"
               "Kurmak için:  pip install pymavlink pyserial\n"
-              "veya kurulum betiğini çalıştırın (kur_ubuntu.sh / kur_windows.bat)"
+              "veya kurulum betiğini çalıştırın "
+              "(scripts/kur_ubuntu.sh / scripts\\kur_windows.bat)"
               % exc.name)
         sys.exit(1)
 
@@ -39,7 +40,7 @@ def main():
                         help="Tarayıcıyı otomatik açma")
     args = parser.parse_args()
 
-    from server import serve
+    from app.server import serve
     serve(port=args.port, open_browser=not args.no_browser)
 
 

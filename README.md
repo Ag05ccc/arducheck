@@ -91,16 +91,16 @@ HTML rapor alınır.
 ### Ubuntu
 
 ```bash
-./kur_ubuntu.sh      # sanal ortam + pymavlink + dialout grubu
-./baslat_ubuntu.sh   # uygulamayı başlatır, tarayıcı otomatik açılır
+./scripts/kur_ubuntu.sh      # sanal ortam + pymavlink + dialout grubu
+./scripts/baslat_ubuntu.sh   # uygulamayı başlatır, tarayıcı otomatik açılır
 ```
 
 ### Windows
 
 1. [python.org](https://www.python.org/downloads/) üzerinden Python 3 kurun
    (**"Add Python to PATH" işaretli olmalı**).
-2. `kur_windows.bat` dosyasına çift tıklayın.
-3. `baslat_windows.bat` ile başlatın.
+2. `scripts\kur_windows.bat` dosyasına çift tıklayın.
+3. `scripts\baslat_windows.bat` ile başlatın.
 
 Elle kurulum (her iki sistemde):
 
@@ -133,12 +133,20 @@ ayrıntısını açan **uçuş öncesi özet penceresini** görebilirsiniz.
 
 ### SITL ile deneme
 
+Hazır yardımcı betikle (ArduPilot `~/ardupilot` altında derliyse):
+
+```bash
+./scripts/sitl_baslat.sh   # TCP 127.0.0.1:5760 açar (ARDUPILOT=/yol ile özelleştirin)
+# ArduCheck'te: TCP / SITL sekmesi → 127.0.0.1:5760 → Bağlan
+```
+
+Ya da elle:
+
 ```bash
 cd ~/ardupilot
 ./build/sitl/bin/arduplane --model plane \
     --defaults Tools/autotest/models/plane.parm \
     --home -35.363261,149.165230,584,353
-# ArduCheck'te: TCP / SITL sekmesi → 127.0.0.1:5760 → Bağlan
 ```
 
 ## Sınırlamalar
@@ -150,14 +158,24 @@ fiziksel durumu. Bunlar manuel listededir. Nihai uçuş kararı pilota aittir.
 ## Dosya yapısı
 
 ```
-arducheck.py       # giriş noktası (HTTP sunucu + tarayıcı)
-mavlink_client.py  # MAVLink bağlantı/telemetri katmanı
-checks.py          # kontrol motoru (katalog + eşikler) + telemetri özeti
-calibration.py     # adım adım kalibrasyon motoru (pusula/ivmeölçer/level/jiro/baro)
-checklist_def.py   # manuel kontrol listesi tanımı
-report.py          # HTML rapor üretici
-server.py          # stdlib HTTP sunucu + JSON API
-web/               # tam-ekran arayüz (HTML/CSS/JS, framework yok)
-  vendor/leaflet/  # yerelden sunulan harita kütüphanesi (offline-uyumlu)
-  vendor/icons/    # araç ikonu + çevrimdışı karo
+arducheck.py            # giriş noktası (app paketini başlatır)
+requirements.txt        # bağımlılıklar (pymavlink, pyserial)
+app/                    # uygulama paketi
+  server.py             # stdlib HTTP sunucu + JSON API
+  mavlink_client.py     # MAVLink bağlantı/telemetri katmanı
+  checks.py             # kontrol motoru (katalog + eşikler) + telemetri özeti
+  calibration.py        # adım adım kalibrasyon motoru (pusula/ivmeölçer/level/jiro/baro)
+  checklist_def.py      # manuel kontrol listesi tanımı
+  remedies.py           # her kontrol için somut çözüm önerileri
+  report.py             # HTML rapor üretici
+  web/                  # tam-ekran arayüz (HTML/CSS/JS, framework yok)
+    vendor/leaflet/     # yerelden sunulan harita kütüphanesi (offline-uyumlu)
+    vendor/icons/       # araç ikonu + çevrimdışı karo
+scripts/                # kurulum & başlatma yardımcıları
+  kur_ubuntu.sh / kur_windows.bat       # kurulum
+  baslat_ubuntu.sh / baslat_windows.bat # başlatma
+  sitl_baslat.sh                        # SITL simülatörü
 ```
+
+> `ref_params.param` (Param sekmesinden kaydedilen referans) depo kökünde
+> oluşturulur ve sürüm kontrolüne dahil edilmez.

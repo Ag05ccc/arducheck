@@ -3,7 +3,7 @@
 # denemek için. Ayrı bir terminalde çalıştırın; açık bıraktığınız sürece
 # 127.0.0.1:5760 (TCP) üzerinden bağlanılabilir.
 #
-# Kullanım:  ./sitl_baslat.sh
+# Kullanım:  scripts/sitl_baslat.sh
 set -e
 
 ARDUPILOT="${ARDUPILOT:-$HOME/ardupilot}"
@@ -15,7 +15,7 @@ WORKDIR="${SITL_WORKDIR:-/tmp/arducheck_sitl}"
 if [ ! -x "$BIN" ]; then
   echo "HATA: SITL derlemesi bulunamadı: $BIN"
   echo "ArduPilot'u derleyin ya da ARDUPILOT değişkenini ayarlayın:"
-  echo "  ARDUPILOT=/yol/ardupilot ./sitl_baslat.sh"
+  echo "  ARDUPILOT=/yol/ardupilot scripts/sitl_baslat.sh"
   exit 1
 fi
 

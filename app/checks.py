@@ -12,9 +12,11 @@ import time
 
 from pymavlink import mavutil
 
-# referans parametre dosyası: araç parametreleri bununla karşılaştırılır
-REF_PARAMS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "ref_params.param")
+# referans parametre dosyası: araç parametreleri bununla karşılaştırılır.
+# Paket içinde değil, depo kökünde tutulur (kullanıcıya ait çalışma-zamanı verisi).
+REF_PARAMS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "ref_params.param")
 
 PASS, WARN, FAIL, INFO, SKIP = "PASS", "WARN", "FAIL", "INFO", "SKIP"
 
@@ -1374,7 +1376,7 @@ def run_all(mav, progress, options):
 
     # attach a concrete remedy to every check and build a severity-sorted
     # problem list (the Status Center's focus: problem + how to fix it)
-    import remedies
+    from . import remedies
     problems = []
     for g in ordered:
         for c in g["checks"]:

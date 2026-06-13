@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ArduCheck kurulum betiği (Ubuntu/Debian)
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # depo köküne geç (.venv burada oluşturulur)
 
 echo "== ArduCheck kurulumu =="
 
@@ -29,4 +29,4 @@ if ! groups | grep -q dialout; then
 fi
 
 echo
-echo "Kurulum tamam. Başlatmak için:  ./baslat_ubuntu.sh"
+echo "Kurulum tamam. Başlatmak için:  ./scripts/baslat_ubuntu.sh"

@@ -9,11 +9,11 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import checks as checks_mod
-import report as report_mod
-from calibration import CalManager
-from checklist_def import MANUAL_ITEMS
-from mavlink_client import MavClient, list_serial_ports, SEVERITY_NAMES
+from . import checks as checks_mod
+from . import report as report_mod
+from .calibration import CalManager
+from .checklist_def import MANUAL_ITEMS
+from .mavlink_client import MavClient, list_serial_ports, SEVERITY_NAMES
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 BOOT_TIME = time.time()   # istemcinin sunucu yeniden başlatmasını sezmesi için
