@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArduCheck — ArduPilot Uçuş Öncesi Kontrol</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="disconnected">
+
+<!-- ====================== TOP BAR ====================== -->
+<header id="topbar">
+  <div class="brand">✈ <b>ArduCheck</b></div>
+  <button id="verdictPill" class="verdict-pill disconnected">● BAĞLI DEĞİL</button>
+  <div class="tbsep"></div>
+  <div class="tb-ind" id="tbMode" title="Uçuş modu"><span class="k">MOD</span><span class="v">—</span></div>
+  <div class="tb-ind" id="tbGps" title="GPS durumu"><span class="k">GPS</span><span class="v">—</span></div>
+  <div class="tb-ind" id="tbBatt" title="Batarya"><span class="k">BATARYA</span><span class="v">—</span></div>
+  <div class="tb-ind" id="tbLink" title="Telemetri bağlantısı"><span class="k">TELEMETRİ</span><span class="v">—</span></div>
+  <div class="tb-ind" id="tbVeh" title="Araç kimliği"><span class="k">ARAÇ</span><span class="v">—</span></div>
+  <div class="tb-spacer"></div>
+  <button id="disconnectBtn" class="tb-btn hidden" title="Bağlantıyı kes">⏏ Kes</button>
+  <button id="themeBtn" class="tb-btn" title="Açık/koyu tema değiştir">◐ Tema</button>
+</header>
+
+<!-- ====================== MAIN GRID ====================== -->
+<main id="grid">
+
+  <!-- LEFT RAIL: telemetry glance + calibration -->
+  <aside id="railL" class="rail hidden">
+    <div class="tabs">
+      <button class="tab active" data-rail="L" data-tab="durum">Durum</button>
+      <button class="tab" data-rail="L" data-tab="kalibrasyon">Kalib.</button>
+      <button class="tab" data-rail="L" data-tab="servo">Servo</button>
+      <button class="tab" data-rail="L" data-tab="param">Param</button>
+    </div>
+    <div class="tabpane active" id="pane-durum">
+      <div id="tiles" class="tiles"></div>
+    </div>
+    <div class="tabpane" id="pane-kalibrasyon">
+      <p class="hint">Yalnızca araç <b>DISARM</b> iken. Bazı kalibrasyonlardan
+        sonra otopilotu <b>yeniden başlatın</b>.</p>
+      <div class="cal-launchers">
+        <button class="cal-btn" data-cal="compass"><span class="ci">🧭</span>
+          <span><b>Pusula</b><small>canlı ilerleme · her yöne çevir</small></span></button>
+        <button class="cal-btn" data-cal="accel"><span class="ci">📐</span>
+          <span><b>İvmeölçer (6 pozisyon)</b><small>adım adım yönlendirme</small></span></button>
+        <button class="cal-btn" data-cal="level"><span class="ci">⊿</span>
+          <span><b>Yatay (Level)</b><small>aracı düz koy</small></span></button>
+        <button class="cal-btn" data-cal="gyro"><span class="ci">↻</span>
+          <span><b>Jiroskop</b><small>sabit tut</small></span></button>
+        <button class="cal-btn" data-cal="baro"><span class="ci">🌡</span>
+          <span><b>Baro / Hava Hızı</b><small>pitot rüzgarsız</small></span></button>
+      </div>
+    </div>
+    <div class="tabpane" id="pane-servo">
+      <p class="hint">Yalnızca <b>DISARM</b> iken. Pervaneyi çıkarın ya da
+        motor gücünü kesin.</p>
+      <div class="rs-head">Yüzey Yön Testi</div>
+      <p class="hint">Araç <b>MANUAL</b> modda olmalı. Komut ~1.5 sn uygulanır
+        (karışım üzerinden RC override); yüzeyleri gözle doğrulayın.</p>
+      <div class="sf-grid">
+        <button class="sf-btn" data-axis="pitch" data-dir="plus">▲ Burun Yukarı</button>
+        <button class="sf-btn" data-axis="pitch" data-dir="minus">▼ Burun Aşağı</button>
+        <button class="sf-btn" data-axis="roll" data-dir="plus">⟳ Sağa Yatış</button>
+        <button class="sf-btn" data-axis="roll" data-dir="minus">⟲ Sola Yatış</button>
+        <button class="sf-btn" data-axis="yaw" data-dir="plus">→ Sağa Yaw</button>
+        <button class="sf-btn" data-axis="yaw" data-dir="minus">← Sola Yaw</button>
+      </div>
+      <p class="hint sf-expect">Beklenen: <b>Burun yukarı</b> → elevatör /
+        elevonların İKİSİ de yukarı · <b>Sağa yatış</b> → sağ kanatçık YUKARI,
+        sol AŞAĞI · <b>Sağa yaw</b> → rudder sağa. Ters çalışan yüzey için
+        SERVOn_REVERSED parametresini değiştirin.</p>
+      <div class="rs-head" style="margin-top:14px">Servo Trim</div>
+      <p class="hint">Kumanda ortada, MANUAL modda: yüzey düz durana dek
+        ayarlayın. Değer otopilota anında yazılır (SERVOn_TRIM).</p>
+      <div id="servoList" class="hint">Bağlanınca yüklenir…</div>
+      <button id="servoRefresh" class="ghost" style="margin-top:8px">⟳ Yenile</button>
+    </div>
+    <div class="tabpane" id="pane-param">
+      <div class="rs-head">Referans Parametre Dosyası</div>
+      <p class="hint">Araç parametreleri bu dosyayla karşılaştırılır —
+        hem kontrol koşusunda (Parametre Referansı grubu) hem aşağıdaki
+        butonla anlık olarak.</p>
+      <div id="refInfo" class="ref-info">—</div>
+      <div class="param-actions">
+        <button id="refSaveBtn" class="ghost">💾 Mevcut parametreleri referans kaydet</button>
+        <button id="refUploadBtn" class="ghost">📂 Dosya yükle (.param)</button>
+        <input id="refFile" type="file" accept=".param,.parm,.txt" class="hidden">
+        <button id="diffBtn" class="primary">⇄ Farkları şimdi göster</button>
+      </div>
+      <div id="diffOut"></div>
+    </div>
+  </aside>
+
+  <!-- CENTER: command center — results pane on top, message panel below -->
+  <section id="center" class="hidden">
+    <div id="resultsPane">
+      <div class="sc-head">
+        <button id="runBtn" class="primary big">▶ Tüm Kontrolleri Çalıştır</button>
+        <button id="reportBtn" class="ghost" disabled>⬇ Rapor</button>
+        <span id="checkStatus" class="hint"></span>
+      </div>
+      <div id="prearmLive" class="prearm-block hidden"></div>
+      <div id="rebootNote" class="reboot-note hidden">⚠ Kalibrasyon sonrası otopilotu
+        <b>YENİDEN BAŞLATIN</b>, ardından kontrolleri tekrar çalıştırın.</div>
+      <div id="statusBanner" class="status-banner idle">
+        Aracın uçuşa hazır olup olmadığını görmek için kontrolleri çalıştırın.
+      </div>
+      <div id="healthCard" class="health hidden"></div>
+      <div id="problemList" class="problem-list"></div>
+    </div>
+    <div id="msgPanel" data-size="yarim">
+      <div class="mp-head">
+        <span class="mp-title">📡 Mesajlar <span id="msgCount" class="hint"></span></span>
+        <div class="mp-tools">
+          <button class="mft active" data-f="err" title="Hata ve üstü (EMERGENCY–ERROR)">Hata</button>
+          <button class="mft active" data-f="warn" title="Uyarı (WARNING)">Uyarı</button>
+          <button class="mft active" data-f="info" title="Bilgi ve altı (NOTICE–DEBUG)">Bilgi</button>
+          <input id="msgSearch" type="search" placeholder="ara…" title="Mesajlarda ara">
+          <button id="msgPause" title="Otomatik kaydırmayı duraklat">⏸</button>
+          <button id="msgCopy" title="Tümünü panoya kopyala">⧉</button>
+          <button id="msgSave" title=".txt olarak indir">⬇</button>
+          <button id="msgClear" title="Görünümü temizle (yeni mesajlar gelmeye devam eder)">🗑</button>
+        </div>
+        <div class="mp-sizes">
+          <button data-size="kapali">Kapalı</button>
+          <button data-size="kompakt">Kompakt</button>
+          <button data-size="yarim" class="active">Yarım</button>
+          <button data-size="tam">Tam</button>
+        </div>
+      </div>
+      <div id="critBanner" class="crit-banner hidden">
+        <span id="critText"></span>
+        <button id="critClose" title="Kapat">✕</button>
+      </div>
+      <div id="messages" class="messages"></div>
+      <button id="newMsgs" class="new-msgs hidden">⬇ <span id="newMsgsN">0</span> yeni mesaj</button>
+    </div>
+  </section>
+
+  <!-- RIGHT RAIL: small resizable map + manual checklist -->
+  <aside id="railR" class="rail hidden">
+    <div class="map-widget" id="mapWidget" data-size="orta">
+      <div class="mw-head">
+        <span>📍 Konum</span>
+        <div class="mw-sizes">
+          <button data-size="gizle" title="Haritayı gizle">Gizle</button>
+          <button data-size="kucuk" title="Küçük">S</button>
+          <button data-size="orta" title="Orta" class="active">M</button>
+          <button data-size="buyuk" title="Büyük">L</button>
+        </div>
+      </div>
+      <div class="map-box" id="mapBox">
+        <div id="map"></div>
+        <div id="hudBox" class="overlay hud-box hidden">
+          <svg id="hud" viewBox="-100 -100 200 200" width="120" height="120">
+            <defs><clipPath id="ball"><circle cx="0" cy="0" r="78"/></clipPath></defs>
+            <g clip-path="url(#ball)">
+              <g id="hudWorld">
+                <rect x="-300" y="-300" width="600" height="300" fill="var(--sky)"/>
+                <rect x="-300" y="0" width="600" height="300" fill="var(--ground)"/>
+                <line x1="-78" y1="0" x2="78" y2="0" stroke="#fff" stroke-width="2"/>
+                <g stroke="#fff" stroke-width="1.3" fill="#fff" font-size="9" text-anchor="middle">
+                  <line x1="-24" y1="-27" x2="24" y2="-27"/><text x="-34" y="-24">10</text><text x="34" y="-24">10</text>
+                  <line x1="-24" y1="27" x2="24" y2="27"/><text x="-34" y="30">10</text><text x="34" y="30">10</text>
+                </g>
+              </g>
+            </g>
+            <g id="hudRose" font-size="11" fill="#cfe3f5" text-anchor="middle" font-weight="700">
+              <circle cx="0" cy="0" r="92" fill="none" stroke="var(--border)" stroke-width="2"/>
+              <text x="0" y="-80">K</text><text x="84" y="5">D</text>
+              <text x="0" y="90">G</text><text x="-84" y="5">B</text>
+            </g>
+            <g stroke="var(--aircraft)" stroke-width="3" fill="none">
+              <path d="M-34 0 L-12 0 M12 0 L34 0 M0 0 l0 6"/>
+            </g>
+            <polygon points="0,-92 -5,-83 5,-83" fill="var(--aircraft)"/>
+            <text id="hudHdg" x="0" y="-66" font-size="11" fill="#fff" text-anchor="middle">—°</text>
+          </svg>
+        </div>
+        <div id="readout" class="overlay readout"></div>
+        <div id="mapBtns" class="overlay map-btns">
+          <button id="recenterBtn" title="Haritayı araca ortala">⌖ Ortala</button>
+          <button id="trailClearBtn" title="Uçuş izini temizle">İz sil</button>
+        </div>
+        <div id="offlineNote" class="overlay offline-note hidden">Çevrimdışı — ızgara</div>
+      </div>
+    </div>
+
+    <div class="rail-section">
+      <div class="rs-head">Manuel Kontrol Listesi <span id="manualCount" class="hint"></span></div>
+      <p class="hint">Telemetriyle doğrulanamayan maddeler; fiziksel kontrol edip işaretleyin.</p>
+      <div id="manualList"></div>
+      <button id="manualReset" class="ghost" style="margin-top:8px">Listeyi Sıfırla</button>
+    </div>
+  </aside>
+</main>
+
+<!-- ====================== CONNECT CARD (disconnected) ====================== -->
+<div id="connectCard" class="connect-card">
+  <h2>✈ ArduCheck — Bağlantı</h2>
+  <div class="conn-tabs">
+    <button class="ctab active" data-ctab="tcp">TCP / SITL</button>
+    <button class="ctab" data-ctab="serial">Seri (USB)</button>
+    <button class="ctab" data-ctab="udp">UDP</button>
+  </div>
+  <div class="cpane" id="cpane-tcp">
+    <label>Adres <input id="tcpHost" value="127.0.0.1" size="12"></label>
+    <label>Port <input id="tcpPort" value="5760" size="6"></label>
+    <div class="hint">SITL varsayılanı: 127.0.0.1:5760</div>
+  </div>
+  <div class="cpane hidden" id="cpane-serial">
+    <div class="row">
+      <select id="serialPort"></select>
+      <button id="refreshPorts" class="ghost" title="Yenile">⟳</button>
+    </div>
+    <label>Baud
+      <select id="baud">
+        <option>57600</option><option selected>115200</option>
+        <option>230400</option><option>460800</option><option>921600</option>
+      </select>
+    </label>
+    <div class="hint">USB: 115200 · Telemetri telsizi: 57600</div>
+  </div>
+  <div class="cpane hidden" id="cpane-udp">
+    <label>Port <input id="udpPort" value="14550" size="6"></label>
+    <div class="hint">Yer istasyonu yayını (varsayılan 14550)</div>
+  </div>
+  <details class="cc-checklist">
+    <summary>🔌 Güç vermeden önce — manuel liste</summary>
+    <p class="hint">Bu maddeler araca güç vermeden (yani uygulama bağlanamadan) yapılmalıdır.</p>
+    <div id="prePowerList"></div>
+  </details>
+  <button id="connectBtn" class="primary big">Bağlan</button>
+  <div id="connStatus" class="hint"></div>
+</div>
+
+<!-- ====================== TICKER (latest autopilot message) ====================== -->
+<footer id="msgTicker" class="hidden" title="Mesaj paneline git">
+  <span class="sv" id="tickerSev">—</span>
+  <span class="tk-text" id="tickerText">Henüz mesaj yok</span>
+</footer>
+
+<!-- ====================== CALIBRATION MODAL ====================== -->
+<div id="calModal" class="modal-backdrop hidden">
+  <div class="modal cal-modal">
+    <div class="modal-head"><span id="calTitle">Kalibrasyon</span>
+      <button id="calClose" class="modal-x">✕</button></div>
+    <div class="modal-body">
+      <div id="calStepIndicator" class="cal-steps hidden"></div>
+      <div id="calMessage" class="cal-msg"></div>
+      <div id="calApPrompt" class="cal-ap hidden"></div>
+      <div id="calVisual"></div>
+      <div id="calReport" class="cal-report hidden"></div>
+      <div id="calBanner" class="cal-banner hidden"></div>
+      <div id="calMsgs" class="cal-msgs hidden"></div>
+    </div>
+    <div class="modal-actions" id="calActions"></div>
+  </div>
+</div>
+
+<!-- ====================== CONFIRM MODAL ====================== -->
+<div id="confirmModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-head"><span id="confirmTitle">Onay</span>
+      <button id="confirmX" class="modal-x">✕</button></div>
+    <div class="modal-body" id="confirmBody"></div>
+    <div class="modal-actions">
+      <button id="confirmNo" class="ghost">Vazgeç</button>
+      <button id="confirmYes" class="primary">Evet</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

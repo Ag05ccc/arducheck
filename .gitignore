@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ArduCheck çalışma-zamanı / yerel dosyalar
+ref_params.param        # araçtan kaydedilen parametreler (kişiye/araca özel)
+*.tmp
+arducheck-rapor*.html   # indirilen HTML raporlar
+
+# Editör / işletim sistemi
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
