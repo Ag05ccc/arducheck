@@ -1,0 +1,8 @@
+# preflight_page (PyQt5 + dronekit) ek bağımlılıkları.
+# Çekirdek ArduCheck motoru yalnızca pymavlink+pyserial ister (bkz. ../requirements.txt);
+# bu modül ayrıca Qt arayüzü ve dronekit bağlantısı için aşağıdakileri gerektirir.
+PyQt5>=5.15
+dronekit>=2.9.2
+future>=0.18        # dronekit'in 'past' modülü için (Python 3.10+ zorunlu)
+pymavlink>=2.4.20
+pyserial>=3.4
