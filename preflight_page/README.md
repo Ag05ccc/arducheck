@@ -6,11 +6,10 @@ raporlama özelliklerini, mevcut bir **PyQt5** GUI uygulamasına ayrı bir pence
 Uçak bağlantısı **dronekit** `Vehicle` üzerinden sağlanır; tüm MAVLink işlemleri
 o bağlantı üzerinden yapılır.
 
-> Mevcut tarayıcı tabanlı ArduCheck (`app/` + `arducheck.py`) **hiç
-> değiştirilmedi**. Bu modül, onun saf kontrol/kalibrasyon/rapor motorlarını
-> (`app/checks.py`, `app/calibration.py`, `app/report.py`, `app/checklist_def.py`,
-> `app/remedies.py`) olduğu gibi yeniden kullanır — yalnızca bağlantı katmanı ve
-> arayüz farklıdır.
+> Web arayüzü ve PyQt sayfası eşit arayüzlerdir. İkisi de kontrol,
+> kalibrasyon, rapor ve ortak operasyon davranışını `app/` altındaki çekirdek
+> modüllerden kullanır; servo/parametre güvenlik kapıları, yüzey testi ve state
+> payload mantığı `app.core.preflight` içinde ortak tutulur.
 
 ## Mimari
 
@@ -19,9 +18,9 @@ host GUI (PyQt5)                    preflight_page
  └─ dronekit Vehicle  ───────────►  DronekitMavClient   (app.MavClient'i besler)
                                           │  (get_msg / get_param / run_command…)
                                           ▼
-                                     app.checks / app.calibration / app.report
+                              app.core.preflight + app.checks/calibration/report
                                           ▲
-                                     PreflightController  (busy kilidi, worker'lar, poll)
+                                     PreflightController  (Qt sinyalleri + poll)
                                           ▲  sinyaller / metotlar
                                      PreflightPage (QWidget) + widgets/*
 ```
@@ -31,8 +30,11 @@ host GUI (PyQt5)                    preflight_page
   akışından besler, komutları Vehicle'ın master MAVLink bağlantısından gönderir.
   Böylece STATUSTEXT birleştirme, parametre indirme, COMMAND_ACK eşleştirme gibi
   incelikli mantık **yeniden yazılmaz**.
-- **`PreflightController`** — `app/server.py`'deki iş parçacığı/orkestrasyon
-  mantığının Qt karşılığı. Hiçbir widget tanımaz; sinyaller yayar.
+- **`app.core.preflight`** — web ve PyQt için ortak operasyon katmanı: busy
+  kilidi, state payload, servo yüzey testi, DISARM kapısı, parametre referansı
+  ve rapor üretimi burada tutulur.
+- **`PreflightController`** — Qt'ye özgü bağlantı/poll/sinyal köprüsü. Hiçbir
+  widget tanımaz; ortak core servislerini çağırır ve sinyaller yayar.
 - **`PreflightPage` / `PreflightWindow`** — arayüz. Tarayıcı yerine saf Qt
   widget'ları (harita yerine native telemetri paneli).
 

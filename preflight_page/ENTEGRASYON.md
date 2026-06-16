@@ -63,9 +63,9 @@ export PYTHONPATH=/home/gz/arducheck:$PYTHONPATH
 
 **c) Depoyu host projenin yanına kopyala/symlink'le** ve normal import et.
 
-> Not: `app/` paketi (kontrol motorları) deponun kökünde `preflight_page/`'in
-> yanında durmalıdır — modül onu oradan import eder ve kökü otomatik `sys.path`'e
-> ekler. Yani sadece **kökü** yola eklemen yeterli.
+> Not: `app/` paketi (ortak core + kontrol motorları) deponun kökünde
+> `preflight_page/`'in yanında durmalıdır — modül onu oradan import eder ve kökü
+> otomatik `sys.path`'e ekler. Yani sadece **kökü** yola eklemen yeterli.
 
 ---
 

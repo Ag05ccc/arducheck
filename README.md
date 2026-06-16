@@ -161,6 +161,7 @@ fiziksel durumu. Bunlar manuel listededir. Nihai uçuş kararı pilota aittir.
 arducheck.py            # giriş noktası (app paketini başlatır)
 requirements.txt        # bağımlılıklar (pymavlink, pyserial)
 app/                    # uygulama paketi
+  core/                 # web ve PyQt arayüzlerinin paylaştığı operasyon katmanı
   server.py             # stdlib HTTP sunucu + JSON API
   mavlink_client.py     # MAVLink bağlantı/telemetri katmanı
   checks.py             # kontrol motoru (katalog + eşikler) + telemetri özeti

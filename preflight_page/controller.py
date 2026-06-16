@@ -10,30 +10,17 @@ Qt arayüzü ana thread'de bloklanmaz.
 Bu sınıf hiçbir Qt widget'ı tanımaz: yalnızca sinyaller yayar ve metotlar sunar.
 """
 
-import os
 import threading
 import time
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 from app import checks as checks_mod
-from app import report as report_mod
 from app.calibration import CalManager
-from app.checklist_def import MANUAL_ITEMS
-from app.mavlink_client import SEVERITY_NAMES, list_serial_ports
+from app.mavlink_client import list_serial_ports
+from app.core import preflight as core
 
 from .dronekit_adapter import DronekitMavClient, connect_vehicle
-
-# SERVOn_FUNCTION -> Türkçe ad (kontrol yüzeyleri) — server.py ile birebir
-SURFACE_FN = {
-    4: "Kanatçık (Aileron)", 19: "Elevatör", 21: "Rudder",
-    2: "Flap", 3: "Otomatik Flap",
-    24: "Flaperon Sol", 25: "Flaperon Sağ",
-    77: "Elevon Sol", 78: "Elevon Sağ",
-    79: "V-Kuyruk Sol", 80: "V-Kuyruk Sağ",
-}
-SURFACE_AXES = {"roll": "RCMAP_ROLL", "pitch": "RCMAP_PITCH", "yaw": "RCMAP_YAW"}
-AXIS_DEFAULT_CHAN = {"roll": 1, "pitch": 2, "yaw": 4}
 
 POLL_MS = 200   # durum yayını sıklığı (5 Hz) — web istemcisinin poll'üne denk
 
@@ -56,21 +43,14 @@ class PreflightController(QObject):
         super().__init__(parent)
         self.mav = None
         self.cal = CalManager()
+        self.operation = core.OperationState()
+        self.surface = core.SurfaceTestManager(self.operation)
         self._embedded_vehicle = vehicle   # host verdiyse (sahip değiliz)
 
         self._lock = threading.RLock()
-        self.busy = None            # süren uzun işlem adı ya da None
-        self.busy_progress = ""
         self.results = None
         self.connect_info = None
         self.manual_checklist = {}  # id -> bool
-
-        # Yüzey yön testi (arka plan RC override) — server.py ile birebir
-        self.servo_test = None
-        self._servo_lock = threading.Lock()
-        self._servo_thread = None
-        self._servo_stop = None
-        self._servo_token = 0
 
         # poll/yayın takibi
         self._notices = []          # (level, text) kuyruğu, _tick boşaltır
@@ -106,16 +86,10 @@ class PreflightController(QObject):
     # ------------------------------------------------------------------ #
 
     def set_busy(self, name, progress=""):
-        with self._lock:
-            if self.busy and name:
-                return False
-            self.busy = name
-            self.busy_progress = progress
-            return True
+        return self.operation.set_busy(name, progress)
 
     def set_progress(self, text):
-        with self._lock:
-            self.busy_progress = text
+        self.operation.set_progress(text)
 
     def _push_notice(self, level, text):
         with self._lock:
@@ -196,7 +170,7 @@ class PreflightController(QObject):
         if mav is not None:
             try:
                 if mav.link_stats().get("connected"):
-                    self._release_override(mav)
+                    core.release_override(mav)
                 mav.disconnect()
             except Exception:
                 pass
@@ -205,8 +179,7 @@ class PreflightController(QObject):
             self.connect_info = None
             self.results = None
             self._last_results_time = None
-            if self.busy == "servo":
-                self.busy = None
+        self.operation.clear_if("servo")
 
     # ------------------------------------------------------------------ #
     # Kontroller
@@ -273,268 +246,60 @@ class PreflightController(QObject):
         return True
 
     # ------------------------------------------------------------------ #
-    # Disarm kapısı (servo/param yazma) — server._disarmed_error ile birebir
-    # ------------------------------------------------------------------ #
-
-    def _disarmed_error(self):
-        mav = self.mav
-        if mav is None or not mav.link_stats().get("connected"):
-            return "Araç bağlı değil"
-        t0 = time.time()
-        hb = None
-        while time.time() - t0 < 1.6:
-            hb = mav.get_msg_after("HEARTBEAT", t0)
-            if hb is not None:
-                break
-            time.sleep(0.1)
-        if hb is None:
-            return "Taze heartbeat alınamadı — bağlantı bayat, işlem reddedildi."
-        if hb.base_mode & 128:
-            return "Araç ARM edilmiş — bu işlem yalnız disarm durumda yapılabilir."
-        return None
-
-    # ------------------------------------------------------------------ #
     # Servo araçları
     # ------------------------------------------------------------------ #
 
     def list_servos(self):
         """(servos_listesi, hata) döner."""
-        mav = self.mav
-        if mav is None or not mav.link_stats().get("connected"):
-            return [], "Araç bağlı değil"
-        out = []
-        for n in range(1, 17):
-            fn = mav.get_param("SERVO%d_FUNCTION" % n)
-            if fn is None or int(fn) not in SURFACE_FN:
-                continue
-            out.append({
-                "n": n, "function": SURFACE_FN[int(fn)],
-                "trim": mav.get_param("SERVO%d_TRIM" % n),
-                "min": mav.get_param("SERVO%d_MIN" % n),
-                "max": mav.get_param("SERVO%d_MAX" % n),
-                "reversed": bool(mav.get_param("SERVO%d_REVERSED" % n) or 0),
-            })
-        return out, None
+        return core.list_servos(self.mav)
 
     def servo_trim(self, n, delta):
         """SERVOn_TRIM'i ±delta kaydır. (ok, ad/değer ya da hata) döner."""
-        err = self._disarmed_error()
+        ok, err, payload = core.servo_trim(self.mav, self.operation, n, delta)
         if err:
             return False, err
-        with self._lock:
-            if self.busy:
-                return False, "Başka bir işlem sürüyor"
-        try:
-            n = int(n)
-            delta = int(delta)
-        except (TypeError, ValueError):
-            return False, "servo/delta geçersiz"
-        if not (1 <= n <= 16 and -50 <= delta <= 50 and delta != 0):
-            return False, "servo 1-16, delta ±1..50 olmalı"
-        mav = self.mav
-        name = "SERVO%d_TRIM" % n
-        cur = mav.get_param(name)
-        if cur is None:
-            return False, "%s okunamadı" % name
-        lo = mav.get_param("SERVO%d_MIN" % n) or 800
-        hi = mav.get_param("SERVO%d_MAX" % n) or 2200
-        new = max(max(800, lo), min(min(2200, hi), int(cur) + delta))
-        ok, res = mav.set_param(name, new)
-        if not ok:
-            return False, str(res)
-        return True, "%s = %s" % (name, int(res) if res is not None else "?")
-
-    # --- yüzey yön testi (arka plan override + supersede) -------------- #
-
-    def _release_override(self, mav):
-        for _ in range(3):
-            mav.rc_override([0] * 8)
-            time.sleep(0.05)
-
-    def start_servo_test(self, vals, mode0, dur, axis, direction):
-        with self._servo_lock:
-            if self.busy and self.busy != "servo":
-                return False, "Başka bir işlem sürüyor"
-            old_stop = self._servo_stop
-            if old_stop is not None:
-                old_stop.set()
-            self._servo_token += 1
-            token = self._servo_token
-            stop = threading.Event()
-            self._servo_stop = stop
-            with self._lock:
-                self.busy = "servo"
-                self.busy_progress = "Yüzey testi: %s" % axis
-            self.servo_test = {"axis": axis, "dir": direction}
-            t = threading.Thread(target=self._surface_worker,
-                                 args=(self.mav, vals, mode0, dur, stop, token),
-                                 daemon=True)
-            self._servo_thread = t
-            t.start()
-        return True, None
+        return ok, "%s = %s" % (
+            payload["name"], int(payload["value"])
+            if payload.get("value") is not None else "?")
 
     def stop_servo_test(self):
-        with self._servo_lock:
-            self._servo_token += 1
-            if self._servo_stop is not None:
-                self._servo_stop.set()
-            self._servo_thread = None
-            self.servo_test = None
-
-    def _surface_worker(self, mav, vals, mode0, dur, stop, token):
-        sent = False
-        try:
-            end = time.time() + dur
-            while time.time() < end and not stop.is_set():
-                hb = mav.get_msg("HEARTBEAT", max_age=2)
-                if hb is None or (hb.base_mode & 128) or \
-                        (mode0 is not None and hb.custom_mode != mode0):
-                    break
-                if not mav.rc_override(vals):
-                    break
-                sent = True
-                stop.wait(0.2)
-        finally:
-            with self._servo_lock:
-                superseded = token != self._servo_token
-                if not superseded:
-                    self.servo_test = None
-                    self._servo_thread = None
-                    self.set_busy(None)
-            if sent and not superseded:
-                self._release_override(mav)
+        self.surface.stop()
 
     def surface_test(self, axis, direction, ms=1500):
         """MANUAL modda RC override darbesiyle yüzey yön testi başlat.
         (ok, bilgi/hata) döner."""
-        mav = self.mav
-        if axis not in SURFACE_AXES or direction not in ("plus", "minus"):
-            return False, "axis/dir geçersiz"
-        superseding = self.busy == "servo" and self.servo_test is not None
-        if superseding:
-            if mav is None or not mav.link_stats().get("connected"):
-                return False, "Araç bağlı değil"
-            hb = mav.get_msg("HEARTBEAT", max_age=3)
-            if hb is not None and (hb.base_mode & 128):
-                return False, "Araç ARM edilmiş — yalnız disarm durumda yapılabilir."
-        else:
-            err = self._disarmed_error()
-            if err:
-                return False, err
-        t = checks_mod.telemetry_summary(mav)
-        if t.get("mode") != "MANUAL":
-            return False, "Yüzey testi için aracı MANUAL moda alın (kumandadan/GCS)."
-        ot = mav.get_param("RC_OVERRIDE_TIME")
-        if ot is None:
-            return False, "RC_OVERRIDE_TIME okunamadı — parametre indirmeyi bekleyin."
-        if ot <= 0:
-            return False, ("RC_OVERRIDE_TIME=%g: RC override kapalı — test "
-                           "reddedildi (3 önerilir)." % ot)
-        chan = int(mav.get_param(SURFACE_AXES[axis]) or AXIS_DEFAULT_CHAN[axis])
-        if not (1 <= chan <= 8):
-            return False, "RCMAP kanalı 1-8 dışı"
-        rev = bool(mav.get_param("RC%d_REVERSED" % chan) or 0)
-        high = (direction == "plus")
-        if rev:
-            high = not high
-        pwm = 1900 if high else 1100
-        vals = [0] * 8
-        vals[chan - 1] = pwm
-        hb0 = mav.get_msg("HEARTBEAT")
-        mode0 = hb0.custom_mode if hb0 else None
-        try:
-            dur = min(3.0, max(0.5, float(ms) / 1000.0))
-        except (TypeError, ValueError):
-            dur = 1.5
-        ok, err = self.start_servo_test(vals, mode0, dur, axis, direction)
-        if not ok:
+        ok, err, payload = core.surface_test(
+            self.mav, self.operation, self.surface, axis, direction, ms)
+        if err:
             return False, err
-        return True, "kanal %d -> %d µs (%.1f sn)" % (chan, pwm, dur)
+        return True, "kanal %d -> %d µs (%.1f sn)" % (
+            payload["chan"], payload["pwm"], payload["dur"])
 
     # ------------------------------------------------------------------ #
     # Referans parametreler
     # ------------------------------------------------------------------ #
 
     def refparams_info(self):
-        info = {"exists": os.path.exists(checks_mod.REF_PARAMS_PATH),
-                "path": os.path.basename(checks_mod.REF_PARAMS_PATH)}
-        if info["exists"]:
-            try:
-                ref = checks_mod.load_ref_params()
-                info["count"] = len(ref)
-                info["mtime"] = os.path.getmtime(checks_mod.REF_PARAMS_PATH)
-            except OSError as exc:
-                info["error"] = str(exc)
-        return info
+        return core.refparams_info()
 
     def param_diff(self):
         """(payload, hata) döner."""
-        mav = self.mav
-        if not os.path.exists(checks_mod.REF_PARAMS_PATH):
-            return None, "Referans dosyası yok"
-        if mav is None:
-            return None, "Araç bağlı değil"
-        params = mav.params_snapshot()
-        if not params:
-            return None, "Araç parametreleri henüz yok"
-        try:
-            ref = checks_mod.load_ref_params()
-        except OSError as exc:
-            return None, "Referans okunamadı: %s" % exc
-        diffs, missing, ignored = checks_mod.param_diff(params, ref)
-        return {"diffs": diffs, "missing": missing, "ignored_volatile": ignored,
-                "param_fetch_done": mav.param_fetch_done, "ref_count": len(ref),
-                "vehicle_count": len(params)}, None
+        return core.param_diff(self.mav)
 
     def save_ref_current(self):
         """Aracın mevcut parametrelerini referans olarak kaydet. (ok, mesaj)."""
-        mav = self.mav
-        if mav is None:
-            return False, "Araç bağlı değil"
-        params = mav.params_snapshot()
-        if not params:
-            return False, "Araç parametreleri henüz yok — indirmenin bitmesini bekleyin"
-        tmp = checks_mod.REF_PARAMS_PATH + ".tmp"
-        skipped = 0
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write("# ArduCheck referans parametreleri — %s\n"
-                        % time.strftime("%Y-%m-%d %H:%M:%S"))
-                for name in sorted(params):
-                    if checks_mod.is_volatile_param(name):
-                        skipped += 1
-                        continue
-                    f.write("%s,%.10g\n" % (name, params[name]))
-            os.replace(tmp, checks_mod.REF_PARAMS_PATH)
-        except OSError as exc:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            return False, str(exc)
+        payload, err = core.save_ref_current(self.mav)
+        if err:
+            return False, err
         return True, ("%d parametre kaydedildi (%d uçucu atlandı)"
-                      % (len(params) - skipped, skipped))
+                      % (payload["count"], payload["skipped_volatile"]))
 
     def upload_ref(self, text):
         """Bir .param metnini referans olarak yükle. (ok, mesaj)."""
-        text = text or ""
-        tmp = checks_mod.REF_PARAMS_PATH + ".tmp"
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(text)
-            ref = checks_mod.load_ref_params(tmp)
-            if not ref:
-                return False, "Dosyada geçerli parametre satırı bulunamadı"
-            os.replace(tmp, checks_mod.REF_PARAMS_PATH)
-        except OSError as exc:
-            return False, str(exc)
-        finally:
-            try:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
-            except OSError:
-                pass
-        return True, "%d parametre yüklendi" % len(ref)
+        payload, err = core.upload_ref(text)
+        if err:
+            return False, err
+        return True, "%d parametre yüklendi" % payload["count"]
 
     # ------------------------------------------------------------------ #
     # Manuel liste + rapor
@@ -553,10 +318,7 @@ class PreflightController(QObject):
         with self._lock:
             results = self.results
             checklist = dict(self.manual_checklist)
-        if not results:
-            return None, "Önce kontrolleri çalıştırın"
-        tele = checks_mod.telemetry_summary(self.mav) if self.mav else {}
-        return report_mod.render(results, checklist, tele), None
+        return core.render_report(results, checklist, self.mav)
 
     @staticmethod
     def list_serial_ports():
@@ -564,7 +326,7 @@ class PreflightController(QObject):
 
     @staticmethod
     def manual_items():
-        return MANUAL_ITEMS
+        return core.manual_items()
 
     # ------------------------------------------------------------------ #
     # Poll çevrimi — durumu derleyip yayınla
@@ -573,37 +335,16 @@ class PreflightController(QObject):
     def _tick(self):
         mav = self.mav
         with self._lock:
-            busy = self.busy
-            progress = self.busy_progress
             connect_info = self.connect_info
-            servo_test = self.servo_test
             results = self.results
             notices = self._notices
             self._notices = []
 
-        link = mav.link_stats() if mav is not None else {"connected": False}
-        connected = bool(link.get("connected"))
-        if mav is not None:
-            telemetry = checks_mod.telemetry_summary(mav)
-            vehicle = checks_mod.vehicle_info(mav)
-            param_progress = mav.param_progress()
-        else:
-            telemetry, vehicle, param_progress = {}, {}, None
-
-        payload = {
-            "embedded": self.embedded,
-            "link": link,
-            "connected": connected,
-            "busy": busy,
-            "progress": progress,
-            "servo_test": servo_test,
-            "connect_info": connect_info,
-            "param_progress": param_progress,
-            "telemetry": telemetry,
-            "vehicle": vehicle,
-            "calibration": self.cal.snapshot(),
-            "have_results": results is not None,
-        }
+        payload = core.build_state_payload(
+            mav, self.operation, self.cal, connect_info, results,
+            self.surface.snapshot(), msgs_since=self._last_msg_t,
+            embedded=self.embedded)
+        connected = bool(payload.get("connected"))
         self.state_changed.emit(payload)
 
         # geçici bildirimler
@@ -616,16 +357,10 @@ class PreflightController(QObject):
             self.connection_changed.emit(connected, connect_info or {})
 
         # yeni mesajlar
-        if mav is not None:
-            new_msgs = [
-                {"t": t, "sev": sev, "sev_name": SEVERITY_NAMES.get(sev, "?"),
-                 "text": text, "count": count}
-                for (t, sev, text, count) in mav.recent_statustexts()
-                if t > self._last_msg_t
-            ]
-            if new_msgs:
-                self._last_msg_t = max(m["t"] for m in new_msgs)
-                self.messages_appended.emit(new_msgs)
+        new_msgs = payload.get("messages") or []
+        if new_msgs:
+            self._last_msg_t = max(m["t"] for m in new_msgs)
+            self.messages_appended.emit(new_msgs)
 
         # yeni sonuçlar
         if results is not None:
