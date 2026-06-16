@@ -40,6 +40,11 @@ host GUI (PyQt5)                    preflight_page
 
 ### 1) Host uygulamaya gömme (önerilen)
 
+> 📌 Başka bir PyQt5 uygulamasına **açılır pencere** olarak ekleme adımlarının
+> tamamı (yol ayarı, tek-örnek koruması, yaşam döngüsü, sık hatalar) için ayrıntılı
+> kılavuza bakın: **[ENTEGRASYON.md](ENTEGRASYON.md)** + çalışan örnek
+> [`examples/host_app_ornegi.py`](examples/host_app_ornegi.py).
+
 Host uygulamada dronekit bağlantısı zaten kuruluysa, o `Vehicle`'ı doğrudan verin:
 
 ```python
